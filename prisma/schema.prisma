@@ -1,0 +1,636 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RolUsuario {
+  ADMIN
+  DIRECTOR
+  DOCENTE
+  TUTOR
+  AUXILIAR
+  PADRE
+  ESTUDIANTE
+}
+
+enum EstadoAsistencia {
+  PRESENTE
+  TARDANZA
+  FALTA
+  JUSTIFICADO
+  PERMISO
+  RETIRADO
+}
+
+enum TipoRegistroAsistencia {
+  GENERAL
+  CLASE
+}
+
+enum TipoIncidencia {
+  MERITO
+  DEMERITO
+}
+
+enum Parentesco {
+  PADRE
+  MADRE
+  TUTOR
+  APODERADO
+}
+
+enum EstadoEntrega {
+  ENTREGADO
+  PENDIENTE
+  NO_PRESENTO
+}
+
+enum TipoNotificacion {
+  ASISTENCIA
+  CONDUCTA
+  ALERTA_CRITICA
+  ACADEMICO
+  PERMISO
+  SALUD
+  RECOJO
+  INCIDENCIA
+  CITACION
+  REUNION
+  ACTA
+  COMPROMISO
+}
+
+model ConfiguracionEscolar {
+  id                        Int      @id @default(autoincrement())
+  nombre_institucion        String   @default("I.E. Emblemática Nivel Secundaria - SIAE")
+  anio_escolar              Int      @default(2026)
+  hora_inicio_entrada       String   @default("07:00")
+  hora_limite_puntual       String   @default("08:00")
+  hora_limite_tardanza      String   @default("08:30")
+  hora_inicio_salida        String   @default("13:30")
+  ventana_antiduplicado_min Int      @default(15)
+  puntaje_conducta_inicial  Int      @default(100)
+  updated_at                DateTime @updatedAt
+
+  @@map("configuracion_escolar")
+}
+
+model AnioEscolar {
+  id           Int         @id @default(autoincrement())
+  nombre       String      @unique // Ej: "2025", "2026"
+  fecha_inicio String      // YYYY-MM-DD
+  fecha_fin    String      // YYYY-MM-DD
+  estado       String      @default("ACTIVO") // ACTIVO, CERRADO, PLANIFICACION
+  created_at   DateTime    @default(now())
+
+  matriculas   Matricula[]
+
+  @@map("anios_escolares")
+}
+
+model Usuario {
+  id            Int        @id @default(autoincrement())
+  nombres       String
+  apellidos     String
+  dni           String     @unique
+  email         String     @unique
+  password_hash String
+  telefono      String?
+  rol           RolUsuario
+  activo        Boolean    @default(true)
+  created_at    DateTime   @default(now())
+
+  // Relaciones base
+  estudiante_perfil        Estudiante?             @relation("UsuarioEstudiante")
+  secciones_tutoradas      GradoSeccion[]          @relation("DocenteTutor")
+  hijos_vinculados         PadreEstudiante[]       @relation("PadreVinculo")
+  asistencias_registradas  Asistencia[]            @relation("RegistradorAsistencia")
+  auditorias_realizadas    AuditoriaAsistencia[]   @relation("ModificadorAuditoria")
+  incidencias_registradas  IncidenciaConducta[]    @relation("RegistradorIncidencia")
+  actividades_creadas      Actividad[]             @relation("DocenteActividad")
+  notificaciones           Notificacion[]          @relation("UsuarioNotificacion")
+
+  // Nuevas relaciones integrales
+  permisos_solicitados     SolicitudPermiso[]      @relation("SolicitantePermiso")
+  permisos_revisados       SolicitudPermiso[]      @relation("RevisorPermiso")
+  salud_registrada         SituacionSalud[]        @relation("RegistradorSalud")
+  salud_confirmada         SituacionSalud[]        @relation("ConfirmadorSalud")
+  autorizaciones_creadas   AutorizacionRecojo[]    @relation("CreadorAutorizacion")
+  retiros_registrados      RetiroEstudiante[]      @relation("RegistradorRetiro")
+  citaciones_responsable   Citacion[]              @relation("ResponsableCitacion")
+  reuniones_responsable    Reunion[]               @relation("ResponsableReunion")
+  actas_creadas            Acta[]                  @relation("CreadorActa")
+  seguimientos_registrados SeguimientoCompromiso[] @relation("RegistradorSeguimiento")
+  archivos_subidos         Archivo[]               @relation("UsuarioArchivo")
+  auditorias_generales     AuditoriaGeneral[]      @relation("UsuarioAuditoriaGeneral")
+
+  @@map("usuarios")
+}
+
+model GradoSeccion {
+  id               Int         @id @default(autoincrement())
+  grado            Int         // 1 a 5 (Secundaria)
+  seccion          String      // "A", "B", "C"
+  nivel            String      @default("SECUNDARIA")
+  tutor_docente_id Int?
+  anio_escolar     Int         @default(2026)
+
+  tutor_docente    Usuario?    @relation("DocenteTutor", fields: [tutor_docente_id], references: [id], onDelete: SetNull)
+  estudiantes      Estudiante[]
+  matriculas       Matricula[]
+  actividades      Actividad[]
+
+  @@unique([grado, seccion, anio_escolar])
+  @@map("grados_secciones")
+}
+
+model Estudiante {
+  id                  Int      @id @default(autoincrement())
+  usuario_id          Int      @unique
+  codigo_qr_unico     String   @unique @default(uuid())
+  codigo_estudiante   String   @unique // Ej: STU-8F72-A91C-001
+  codigo_modular      String?
+  grado_seccion_id    Int
+  puntaje_conducta    Int      @default(100)
+  foto_url            String?
+  fecha_nacimiento    String?  // YYYY-MM-DD
+  sexo                String?  // "M", "F"
+  estado              String   @default("ACTIVO") // ACTIVO, RETIRADO, INACTIVO
+  contacto_emergencia String?
+
+  usuario               Usuario                 @relation("UsuarioEstudiante", fields: [usuario_id], references: [id], onDelete: Cascade)
+  grado_seccion         GradoSeccion            @relation(fields: [grado_seccion_id], references: [id])
+  padres                PadreEstudiante[]
+  matriculas            Matricula[]
+  codigos_qr            CodigoQR[]
+  asistencias           Asistencia[]
+  solicitudes_permiso   SolicitudPermiso[]
+  situaciones_salud     SituacionSalud[]
+  autorizaciones_recojo AutorizacionRecojo[]
+  retiros               RetiroEstudiante[]
+  incidencias           IncidenciaConducta[]
+  citaciones            Citacion[]
+  reuniones             Reunion[]
+  actas                 Acta[]
+  compromisos           Compromiso[]
+  calificaciones        CalificacionActividad[]
+  notificaciones        Notificacion[]
+
+  @@map("estudiantes")
+}
+
+model Matricula {
+  id               Int          @id @default(autoincrement())
+  estudiante_id    Int
+  grado_seccion_id Int
+  anio_escolar_id  Int
+  anio_escolar_num Int          @default(2026)
+  estado           String       @default("MATRICULADO") // MATRICULADO, RETIRADO, TRASLADADO, PROMOVIDO
+  fecha_matricula  String       // YYYY-MM-DD
+  observaciones    String?
+  created_at       DateTime     @default(now())
+
+  estudiante       Estudiante   @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  grado_seccion    GradoSeccion @relation(fields: [grado_seccion_id], references: [id])
+  anio_escolar     AnioEscolar  @relation(fields: [anio_escolar_id], references: [id])
+
+  @@unique([estudiante_id, anio_escolar_id])
+  @@map("matriculas")
+}
+
+model CodigoQR {
+  id                Int        @id @default(autoincrement())
+  estudiante_id     Int
+  token             String     @unique // Ej: STU-8F72-A91C-X45
+  estado            String     @default("ACTIVO") // ACTIVO, REVOCADO
+  motivo_revocacion String?
+  generado_por_id   Int?
+  revocado_por_id   Int?
+  created_at        DateTime   @default(now())
+  revoked_at        DateTime?
+
+  estudiante        Estudiante @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+
+  @@index([estudiante_id, estado])
+  @@map("codigos_qr")
+}
+
+model PadreEstudiante {
+  id               Int        @id @default(autoincrement())
+  padre_usuario_id Int
+  estudiante_id    Int
+  parentesco       Parentesco @default(PADRE)
+  recibe_alertas   Boolean    @default(true)
+
+  padre            Usuario    @relation("PadreVinculo", fields: [padre_usuario_id], references: [id], onDelete: Cascade)
+  estudiante       Estudiante @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+
+  @@unique([padre_usuario_id, estudiante_id])
+  @@map("padres_estudiantes")
+}
+
+model Archivo {
+  id               Int      @id @default(autoincrement())
+  storage_key      String
+  nombre_original  String
+  mime_type        String
+  tamano_bytes     Int      @default(0)
+  contenido_base64 String?  // Evidencia protegida en BD o URL
+  entidad_tipo     String?  // PERMISO, SALUD, AUTORIZACION_RECOJO, RETIRO, INCIDENCIA, ACTA
+  entidad_id       Int?
+  subido_por_id    Int?
+  created_at       DateTime @default(now())
+
+  subido_por          Usuario?             @relation("UsuarioArchivo", fields: [subido_por_id], references: [id], onDelete: SetNull)
+  evidencias_permiso  EvidenciaPermiso[]
+  evidencias_incid    EvidenciaIncidencia[]
+
+  @@map("archivos")
+}
+
+model Asistencia {
+  id                   Int                    @id @default(autoincrement())
+  estudiante_id        Int
+  fecha                String                 // Formato YYYY-MM-DD (America/Lima)
+  hora_entrada         String?                // Formato HH:mm:ss
+  hora_salida          String?                // Formato HH:mm:ss
+  minutos_tardanza     Int                    @default(0)
+  tipo_registro        TipoRegistroAsistencia @default(GENERAL)
+  curso_nombre         String?                // Para asistencia por clase
+  estado               EstadoAsistencia       @default(PRESENTE)
+  registrado_por_id    Int?
+  ultimo_escaneo_ts    DateTime               @default(now())
+  motivo_justificacion String?
+  evidencia_url        String?
+  created_at           DateTime               @default(now())
+
+  estudiante           Estudiante             @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  registrado_por       Usuario?               @relation("RegistradorAsistencia", fields: [registrado_por_id], references: [id], onDelete: SetNull)
+  auditorias           AuditoriaAsistencia[]
+
+  @@index([estudiante_id, fecha])
+  @@index([fecha, tipo_registro])
+  @@map("asistencias")
+}
+
+model AuditoriaAsistencia {
+  id                Int              @id @default(autoincrement())
+  asistencia_id     Int
+  modificado_por_id Int
+  estado_anterior   EstadoAsistencia
+  estado_nuevo      EstadoAsistencia
+  motivo_cambio     String
+  evidencia_url     String?
+  fecha_hora_cambio DateTime         @default(now())
+
+  asistencia        Asistencia       @relation(fields: [asistencia_id], references: [id], onDelete: Cascade)
+  modificado_por    Usuario          @relation("ModificadorAuditoria", fields: [modificado_por_id], references: [id])
+
+  @@map("auditoria_asistencia")
+}
+
+model SolicitudPermiso {
+  id                 Int                @id @default(autoincrement())
+  estudiante_id      Int
+  solicitado_por_id  Int
+  fecha              String             // YYYY-MM-DD
+  fecha_fin          String?            // YYYY-MM-DD
+  tipo               String             @default("SALUD") // SALUD, CITA_MEDICA, MOTIVO_FAMILIAR, OTRO
+  descripcion        String
+  estado             String             @default("PENDIENTE") // PENDIENTE, APROBADO, RECHAZADO
+  revisado_por_id    Int?
+  respuesta_revision String?
+  reviewed_at        DateTime?
+  created_at         DateTime           @default(now())
+
+  estudiante         Estudiante         @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  solicitado_por     Usuario            @relation("SolicitantePermiso", fields: [solicitado_por_id], references: [id])
+  revisado_por       Usuario?           @relation("RevisorPermiso", fields: [revisado_por_id], references: [id], onDelete: SetNull)
+  evidencias         EvidenciaPermiso[]
+
+  @@index([estudiante_id, estado])
+  @@map("solicitudes_permiso")
+}
+
+model EvidenciaPermiso {
+  id         Int              @id @default(autoincrement())
+  permiso_id Int
+  archivo_id Int
+
+  permiso    SolicitudPermiso @relation(fields: [permiso_id], references: [id], onDelete: Cascade)
+  archivo    Archivo          @relation(fields: [archivo_id], references: [id], onDelete: Cascade)
+
+  @@map("evidencias_permiso")
+}
+
+model SituacionSalud {
+  id                       Int                @id @default(autoincrement())
+  estudiante_id            Int
+  registrado_por_id        Int
+  fecha                    String             // YYYY-MM-DD
+  hora                     String             // HH:mm
+  tipo_situacion           String             @default("MALESTAR") // MALESTAR, FIEBRE, DOLOR, ACCIDENTE, SINTOMAS, OTRO
+  descripcion              String
+  accion_realizada         String
+  requiere_recojo          Boolean            @default(true)
+  estado                   String             @default("PENDIENTE_RECOJO") // EN_OBSERVACION, PENDIENTE_RECOJO, PADRE_CONFIRMADO, RETIRADO, ATENDIDO
+  notificado_padre         Boolean            @default(true)
+  confirmado_padre         Boolean            @default(false)
+  fecha_confirmacion_padre DateTime?
+  confirmado_por_id        Int?
+  created_at               DateTime           @default(now())
+
+  estudiante               Estudiante         @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  registrado_por           Usuario            @relation("RegistradorSalud", fields: [registrado_por_id], references: [id])
+  confirmado_por           Usuario?           @relation("ConfirmadorSalud", fields: [confirmado_por_id], references: [id], onDelete: SetNull)
+  retiros                  RetiroEstudiante[]
+
+  @@index([estudiante_id, fecha])
+  @@map("situaciones_salud")
+}
+
+model AutorizacionRecojo {
+  id                 Int                @id @default(autoincrement())
+  estudiante_id      Int
+  autorizado_por_id  Int
+  persona_autorizada String
+  parentesco         String             // Tío, Abuela, Hermano, Apoderado, etc.
+  dni_persona        String
+  telefono_persona   String?
+  tipo_autorizacion  String             @default("UN_SOLO_USO") // PERMANENTE, TEMPORAL, FECHA_ESPECIFICA, HORARIO_ESPECIFICO, EMERGENCIA, UN_SOLO_USO
+  valido_desde       String             // YYYY-MM-DD
+  valido_hasta       String             // YYYY-MM-DD
+  hora_aproximada    String?            // HH:mm
+  observaciones      String?
+  archivo_id         Int?
+  estado             String             @default("APROBADO") // PENDIENTE, APROBADO, RECHAZADO, UTILIZADA, VENCIDA
+  created_at         DateTime           @default(now())
+
+  estudiante         Estudiante         @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  autorizado_por     Usuario            @relation("CreadorAutorizacion", fields: [autorizado_por_id], references: [id])
+  retiros            RetiroEstudiante[]
+
+  @@index([estudiante_id, estado])
+  @@map("autorizaciones_recojo")
+}
+
+model RetiroEstudiante {
+  id                   Int                 @id @default(autoincrement())
+  estudiante_id        Int
+  autorizacion_id      Int?
+  situacion_salud_id   Int?
+  fecha                String              // YYYY-MM-DD
+  hora_salida          String              // HH:mm
+  motivo               String              // Situación de salud, Cita médica, Permiso familiar, Emergencia
+  recogido_por_nombre  String
+  recogido_por_dni     String
+  parentesco           String              // Padre, Madre, Tío, Abuelo, etc.
+  documento_verificado String              @default("DNI")
+  registrado_por_id    Int
+  archivo_evidencia_id Int?
+  observaciones        String?
+  created_at           DateTime            @default(now())
+
+  estudiante           Estudiante          @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  autorizacion         AutorizacionRecojo? @relation(fields: [autorizacion_id], references: [id], onDelete: SetNull)
+  situacion_salud      SituacionSalud?     @relation(fields: [situacion_salud_id], references: [id], onDelete: SetNull)
+  registrado_por       Usuario             @relation("RegistradorRetiro", fields: [registrado_por_id], references: [id])
+
+  @@index([estudiante_id, fecha])
+  @@map("retiros_estudiantes")
+}
+
+model IncidenciaConducta {
+  id                Int                   @id @default(autoincrement())
+  codigo            String?               // Ej: INC-00045
+  estudiante_id     Int
+  registrado_por_id Int
+  tipo              TipoIncidencia        @default(DEMERITO)
+  naturaleza        String                @default("CONVIVENCIA") // CONDUCTA, CONVIVENCIA, ACADEMICA, ACCIDENTE, SALUD, DANO_BIENES, CONFLICTO, INCUMPLIMIENTO_NORMAS, OTRO
+  gravedad          String                @default("MODERADA")    // LEVE, MODERADA, GRAVE, MUY_GRAVE
+  categoria         String
+  puntos_aplicados  Int                   @default(0)
+  descripcion       String
+  acciones_tomadas  String?
+  estado            String                @default("EN_SEGUIMIENTO") // ABIERTA, EN_SEGUIMIENTO, CON_CITACION, CERRADA
+  requiere_citacion Boolean               @default(false)
+  fecha_incidente   DateTime              @default(now())
+  fecha_cierre      DateTime?
+  comentario_cierre String?
+
+  estudiante        Estudiante            @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  registrado_por    Usuario               @relation("RegistradorIncidencia", fields: [registrado_por_id], references: [id])
+  evidencias        EvidenciaIncidencia[]
+  citaciones        Citacion[]
+
+  @@index([estudiante_id, estado])
+  @@map("incidencias_conducta")
+}
+
+model EvidenciaIncidencia {
+  id            Int                @id @default(autoincrement())
+  incidencia_id Int
+  archivo_id    Int
+
+  incidencia    IncidenciaConducta @relation(fields: [incidencia_id], references: [id], onDelete: Cascade)
+  archivo       Archivo            @relation(fields: [archivo_id], references: [id], onDelete: Cascade)
+
+  @@map("evidencias_incidencia")
+}
+
+model Citacion {
+  id                 Int                 @id @default(autoincrement())
+  estudiante_id      Int
+  incidencia_id      Int?
+  motivo             String
+  fecha_programada   String              // YYYY-MM-DD
+  hora_programada    String              // HH:mm
+  lugar              String              @default("Oficina de Tutoría")
+  responsable_id     Int
+  rol_responsable    String              @default("TUTOR") // AUXILIAR, DOCENTE, TUTOR, DIRECTOR, COORDINADOR, PSICOLOGO
+  estado             String              @default("PENDIENTE") // PENDIENTE, CONFIRMADA, NO_PUEDE_ASISTIR, SOLICITA_REPROGRAMACION, REPROGRAMADA, ATENDIDA
+  respuesta_padre    String?             // CONFIRMO_ASISTENCIA, NO_PUEDO_ASISTIR, SOLICITO_REPROGRAMACION
+  comentario_padre   String?
+  fecha_confirmacion DateTime?
+  historial_cambios  String?             // JSON de reprogramaciones
+  created_at         DateTime            @default(now())
+
+  estudiante         Estudiante          @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  incidencia         IncidenciaConducta? @relation(fields: [incidencia_id], references: [id], onDelete: SetNull)
+  responsable        Usuario             @relation("ResponsableCitacion", fields: [responsable_id], references: [id])
+  reunion            Reunion?
+
+  @@index([estudiante_id, estado])
+  @@map("citaciones")
+}
+
+model Reunion {
+  id             Int                   @id @default(autoincrement())
+  citacion_id    Int?                  @unique
+  estudiante_id  Int
+  fecha          String                // YYYY-MM-DD
+  hora           String                // HH:mm
+  responsable_id Int
+  motivo         String
+  descripcion    String
+  acuerdos       String
+  observaciones  String?
+  created_at     DateTime              @default(now())
+
+  citacion       Citacion?             @relation(fields: [citacion_id], references: [id], onDelete: SetNull)
+  estudiante     Estudiante            @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  responsable    Usuario               @relation("ResponsableReunion", fields: [responsable_id], references: [id])
+  participantes  ParticipanteReunion[]
+  actas          Acta[]
+
+  @@map("reuniones")
+}
+
+model ParticipanteReunion {
+  id                  Int     @id @default(autoincrement())
+  reunion_id          Int
+  nombre_participante String
+  rol_participante    String  // Padre, Madre, Tutor, Docente, Director, Auxiliar
+  dni_participante    String?
+
+  reunion             Reunion @relation(fields: [reunion_id], references: [id], onDelete: Cascade)
+
+  @@map("participantes_reunion")
+}
+
+model Acta {
+  id                     Int          @id @default(autoincrement())
+  codigo                 String?      // Ej: ACT-00012
+  estudiante_id          Int
+  reunion_id             Int?
+  tipo                   String       @default("COMPROMISO") // CONOCIMIENTO, COMPROMISO, OTRO
+  motivo                 String
+  contenido              String
+  informacion_comunicada String?
+  observaciones          String?
+  creado_por_id          Int
+  aceptado_padre         Boolean      @default(false)
+  fecha_aceptacion       DateTime?
+  created_at             DateTime     @default(now())
+
+  estudiante             Estudiante   @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  reunion                Reunion?     @relation(fields: [reunion_id], references: [id], onDelete: SetNull)
+  creado_por             Usuario      @relation("CreadorActa", fields: [creado_por_id], references: [id])
+  compromisos            Compromiso[]
+
+  @@map("actas")
+}
+
+model Compromiso {
+  id                     Int                     @id @default(autoincrement())
+  codigo                 String?                 // Ej: CMP-00018
+  estudiante_id          Int
+  acta_id                Int?
+  descripcion            String
+  responsable_compromiso String                  @default("Padre de familia") // Padre de familia, Estudiante, Institución / Tutor
+  fecha_seguimiento      String                  // YYYY-MM-DD
+  estado                 String                  @default("PENDIENTE") // PENDIENTE, EN_SEGUIMIENTO, CUMPLIDO, INCUMPLIDO, CERRADO
+  created_at             DateTime                @default(now())
+
+  estudiante             Estudiante              @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  acta                   Acta?                   @relation(fields: [acta_id], references: [id], onDelete: SetNull)
+  seguimientos           SeguimientoCompromiso[]
+
+  @@index([estudiante_id, estado])
+  @@map("compromisos")
+}
+
+model SeguimientoCompromiso {
+  id                Int        @id @default(autoincrement())
+  compromiso_id     Int
+  fecha             String     // YYYY-MM-DD
+  resultado         String     // CUMPLIDO, EN_PROGRESO, INCUMPLIDO, CERRADO
+  observaciones     String
+  registrado_por_id Int
+  created_at        DateTime   @default(now())
+
+  compromiso        Compromiso @relation(fields: [compromiso_id], references: [id], onDelete: Cascade)
+  registrado_por    Usuario    @relation("RegistradorSeguimiento", fields: [registrado_por_id], references: [id])
+
+  @@map("seguimientos_compromiso")
+}
+
+model Actividad {
+  id               Int      @id @default(autoincrement())
+  grado_seccion_id Int
+  docente_id       Int
+  curso_nombre     String
+  titulo_actividad String
+  descripcion      String?
+  fecha_entrega    String   // YYYY-MM-DD
+  created_at       DateTime @default(now())
+
+  grado_seccion    GradoSeccion            @relation(fields: [grado_seccion_id], references: [id], onDelete: Cascade)
+  docente          Usuario                 @relation("DocenteActividad", fields: [docente_id], references: [id])
+  calificaciones   CalificacionActividad[]
+
+  @@map("actividades")
+}
+
+model CalificacionActividad {
+  id             Int           @id @default(autoincrement())
+  actividad_id   Int
+  estudiante_id  Int
+  estado_entrega EstadoEntrega @default(PENDIENTE)
+  nota           Float?
+  observacion    String?
+  updated_at     DateTime      @updatedAt
+
+  actividad      Actividad     @relation(fields: [actividad_id], references: [id], onDelete: Cascade)
+  estudiante     Estudiante    @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+
+  @@unique([actividad_id, estudiante_id])
+  @@map("calificaciones_actividad")
+}
+
+model Notificacion {
+  id                    Int              @id @default(autoincrement())
+  usuario_destino_id    Int
+  estudiante_id         Int?
+  titulo                String
+  mensaje               String
+  tipo                  TipoNotificacion @default(ASISTENCIA)
+  leido                 Boolean          @default(false)
+  requiere_confirmacion Boolean          @default(false)
+  confirmado            Boolean          @default(false)
+  fecha_confirmacion    DateTime?
+  referencia_tipo       String?
+  referencia_id         Int?
+  created_at            DateTime         @default(now())
+
+  usuario_destino       Usuario          @relation("UsuarioNotificacion", fields: [usuario_destino_id], references: [id], onDelete: Cascade)
+  estudiante            Estudiante?      @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_destino_id, leido])
+  @@map("notificaciones")
+}
+
+model AuditoriaGeneral {
+  id             Int      @id @default(autoincrement())
+  usuario_id     Int?
+  usuario_nombre String?
+  usuario_rol    String?
+  accion         String
+  entidad        String
+  entidad_id     Int?
+  estudiante_id  Int?
+  descripcion    String
+  metadata       String?  // JSON con valores antes/después
+  created_at     DateTime @default(now())
+
+  usuario        Usuario? @relation("UsuarioAuditoriaGeneral", fields: [usuario_id], references: [id], onDelete: SetNull)
+
+  @@index([entidad, created_at])
+  @@index([estudiante_id])
+  @@map("auditoria_general")
+}
