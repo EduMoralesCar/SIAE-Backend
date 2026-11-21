@@ -2,6 +2,8 @@ const cron = require('node-cron');
 const prisma = require('../config/prisma');
 const { getLimaDateParts, TIMEZONE } = require('../utils/dateHelper');
 const { notificarPadresEstudiante } = require('../services/notificacion.service');
+const { limpiarCacheTotal } = require('../middlewares/cache.middleware');
+const { emitirActualizacion } = require('../services/socket.service');
 
 /**
  * Identifica a todos los estudiantes activos sin marcación GENERAL en la fecha actual
@@ -56,6 +58,16 @@ async function ejecutarCierreAsistenciaDiaria(fechaObjetivo = null, usuarioId = 
       titulo: `Inasistencia Registrada (${targetDate})`,
       mensaje: `El estudiante ${est.usuario.nombres} ${est.usuario.apellidos} (${est.grado_seccion.grado}° "${est.grado_seccion.seccion}") no registró ingreso antes del cierre de asistencia (${hora}). Se asignó FALTA INJUSTIFICADA.`,
       tipo: 'ALERTA_CRITICA',
+    });
+  }
+
+  if (faltasGeneradas > 0) {
+    limpiarCacheTotal();
+    emitirActualizacion({
+      modulo: 'asistencia',
+      metodo: 'CRON',
+      ruta: '/asistencia/cierre-diario',
+      detalle: `Cierre automático: ${faltasGeneradas} faltas registradas`,
     });
   }
 
