@@ -1,7 +1,8 @@
+const { emitirActualizacion } = require('../services/socket.service');
+
 /**
- * Middleware de caché en memoria de alta velocidad con invalidación instantánea en escrituras.
- * Reduce la latencia de lectura entre el servidor local y Supabase (us-west-2) de ~1800ms a <3ms
- * al cambiar entre secciones, garantizando datos 100% frescos tras cualquier POST/PUT/PATCH/DELETE.
+ * Middleware de caché en memoria de alta velocidad con invalidación instantánea en escrituras
+ * y difusión automática por WebSocket (Socket.IO) a todos los perfiles conectados.
  */
 const store = new Map();
 const DEFAULT_TTL_MS = 45 * 1000; // 45 segundos
@@ -11,14 +12,35 @@ function limpiarCacheTotal() {
 }
 
 function cacheMiddleware(req, res, next) {
-  // Si es una operación de escritura (POST, PUT, PATCH, DELETE), invalidar toda la caché
+  // Si es una operación de escritura (POST, PUT, PATCH, DELETE), invalidar caché y emitir evento en tiempo real
   if (req.method !== 'GET') {
     limpiarCacheTotal();
+
+    res.on('finish', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        limpiarCacheTotal();
+        // No emitir broadcast global al iniciar sesión (ya se actualiza vía siae:presencia)
+        if (!req.path.includes('/auth/login')) {
+          emitirActualizacion({
+            metodo: req.method,
+            ruta: req.path,
+            actor: req.usuario
+              ? {
+                  id: req.usuario.id,
+                  nombre: `${req.usuario.nombres || ''} ${req.usuario.apellidos || ''}`.trim(),
+                  rol: req.usuario.rol,
+                }
+              : null,
+          });
+        }
+      }
+    });
+
     return next();
   }
 
-  // No cachear descargas binarias (como exportación Excel)
-  if (req.path.includes('exportar-excel')) {
+  // No cachear descargas binarias (como exportación Excel) ni notificaciones en tiempo real
+  if (req.path.includes('exportar-excel') || req.path.includes('/notificaciones')) {
     return next();
   }
 
