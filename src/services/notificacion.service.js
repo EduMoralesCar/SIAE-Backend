@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const prisma = require('../config/prisma');
+const { emitirNotificacionUsuario } = require('./socket.service');
 
 let transporter = null;
 let usandoEthereal = false;
@@ -88,12 +89,12 @@ async function notificarPadresEstudiante({
 
     // Si es alerta crítica (ej. puntaje <= 60 o 3+ faltas), derivar a Dirección / TOE
     if (notificarDireccion) {
-      const admins = await prisma.usuario.findMany({
-        where: { rol: 'ADMIN', activo: true },
+      const directivos = await prisma.usuario.findMany({
+        where: { rol: { in: ['ADMIN', 'DIRECTOR'] }, activo: true },
       });
-      for (const admin of admins) {
+      for (const directivo of directivos) {
         notificacionesData.push({
-          usuario_destino_id: admin.id,
+          usuario_destino_id: directivo.id,
           estudiante_id: estudianteId,
           titulo: `[DIRECCIÓN / TOE] ${titulo}`,
           mensaje,
@@ -106,6 +107,16 @@ async function notificarPadresEstudiante({
       await prisma.notificacion.createMany({
         data: notificacionesData,
       });
+
+      // Push inmediato por WebSocket (Socket.IO) a cada perfil destinatario conectado
+      for (const notif of notificacionesData) {
+        emitirNotificacionUsuario(notif.usuario_destino_id, {
+          titulo: notif.titulo,
+          mensaje: notif.mensaje,
+          tipo: notif.tipo,
+          estudiante_id: notif.estudiante_id,
+        });
+      }
     }
 
     const mailTransporter = await obtenerTransporter();
