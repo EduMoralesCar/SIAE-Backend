@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const { verificarToken, autorizarRoles } = require('../middlewares/auth.middleware');
+const { obtenerMonitorLogs } = require('../middlewares/logger.middleware');
 const authCtrl = require('../controllers/auth.controller');
 const adminCtrl = require('../controllers/admin.controller');
 const asistenciaCtrl = require('../controllers/asistencia.controller');
@@ -109,6 +110,20 @@ router.get(
   adminCtrl.listarAuditoriaGeneral
 );
 
+// Monitoreo de logs HTTP y salud operativa en tiempo real (Evidencia de producción)
+router.get(
+  '/monitor/logs',
+  verificarToken,
+  autorizarRoles('ADMIN', 'DIRECTOR'),
+  (req, res) => {
+    const limite = req.query.limite ? Number(req.query.limite) : 80;
+    return res.json({
+      ok: true,
+      ...obtenerMonitorLogs(limite),
+    });
+  }
+);
+
 // ============================================================================
 // 3. ASISTENCIA QR, JUSTIFICACIÓN CON AUDITORÍA Y CIERRE AUTOMÁTICO
 // ============================================================================
@@ -134,6 +149,18 @@ router.post(
 );
 
 router.get('/asistencias', verificarToken, asistenciaCtrl.listarAsistencias);
+router.put(
+  '/asistencias/:id',
+  verificarToken,
+  autorizarRoles('ADMIN', 'DIRECTOR', 'AUXILIAR', 'TUTOR', 'DOCENTE'),
+  asistenciaCtrl.actualizarAsistencia
+);
+router.delete(
+  '/asistencias/:id',
+  verificarToken,
+  autorizarRoles('ADMIN', 'DIRECTOR'),
+  asistenciaCtrl.eliminarAsistencia
+);
 router.get(
   '/auditoria',
   verificarToken,

@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const apiRoutes = require('./routes');
 const { cacheMiddleware } = require('./middlewares/cache.middleware');
+const { requestLoggerMiddleware, obtenerMonitorLogs } = require('./middlewares/logger.middleware');
 const { iniciarCronAsistencia } = require('./jobs/asistencia.cron');
 const { getLimaDateParts } = require('./utils/dateHelper');
 const { iniciarWebSocket, obtenerEstadoPresencia } = require('./services/socket.service');
@@ -24,6 +25,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: '10mb' }));
+app.use(requestLoggerMiddleware);
 
 // Inicializar servidor WebSocket (Socket.IO) sobre el mismo puerto HTTP (listo para Render/Railway)
 iniciarWebSocket(server);
@@ -31,12 +33,16 @@ iniciarWebSocket(server);
 // Endpoint de salud (útil para despertar el servicio en Render antes de la sustentación)
 app.get('/api/health', (req, res) => {
   const lima = getLimaDateParts();
+  const monitor = obtenerMonitorLogs(0);
   res.json({
     ok: true,
     sistema: 'SIAE - Sistema Integral de Control de Asistencia Escolar',
     estado: 'OPERATIVO',
     websocket: 'ACTIVO',
     presencia: obtenerEstadoPresencia(),
+    uptimeSegundos: monitor.uptimeSegundos,
+    memoriaMB: monitor.memoriaMB,
+    metricasHttp: monitor.metricas,
     fechaHoraLima: `${lima.fecha} ${lima.hora}`,
   });
 });
