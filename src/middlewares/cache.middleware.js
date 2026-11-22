@@ -39,8 +39,12 @@ function cacheMiddleware(req, res, next) {
     return next();
   }
 
-  // No cachear descargas binarias (como exportación Excel) ni notificaciones en tiempo real
-  if (req.path.includes('exportar-excel') || req.path.includes('/notificaciones')) {
+  // No cachear descargas binarias (Excel), notificaciones ni monitor de logs en tiempo real
+  if (
+    req.path.includes('exportar-excel') ||
+    req.path.includes('/notificaciones') ||
+    req.path.includes('/monitor')
+  ) {
     return next();
   }
 
