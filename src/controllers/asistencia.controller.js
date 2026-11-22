@@ -632,9 +632,76 @@ async function dispararCierreManual(req, res) {
   }
 }
 
+async function actualizarAsistencia(req, res) {
+  const id = Number(req.params.id);
+  if (!id || Number.isNaN(id)) {
+    return res.status(400).json({ ok: false, mensaje: 'ID de asistencia inválido.' });
+  }
+  req.body = { ...req.body, asistencia_id: id };
+  return justificarOModificarAsistencia(req, res);
+}
+
+async function eliminarAsistencia(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || Number.isNaN(id)) {
+      return res.status(400).json({ ok: false, mensaje: 'ID de asistencia inválido.' });
+    }
+
+    const existente = await prisma.asistencia.findUnique({
+      where: { id },
+      include: {
+        estudiante: {
+          include: {
+            usuario: { select: { nombres: true, apellidos: true, dni: true } },
+            grado_seccion: true,
+          },
+        },
+      },
+    });
+
+    if (!existente) {
+      return res.status(404).json({ ok: false, mensaje: 'Registro de asistencia no encontrado.' });
+    }
+
+    const motivo = (req.body?.motivo || req.query?.motivo || 'Eliminación administrativa de registro').trim();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditoriaAsistencia.deleteMany({ where: { asistencia_id: id } });
+      await tx.asistencia.delete({ where: { id } });
+    });
+
+    await registrarAuditoria({
+      usuario: req.usuario,
+      accion: 'ASISTENCIA_ELIMINADA',
+      entidad: 'ASISTENCIA',
+      entidad_id: id,
+      estudiante_id: existente.estudiante_id,
+      descripcion: `Registro de asistencia #${id} (${existente.fecha}, estado ${existente.estado}) de ${existente.estudiante?.usuario?.nombres || ''} ${existente.estudiante?.usuario?.apellidos || ''} eliminado. Motivo: ${motivo}`,
+      metadata: {
+        fecha: existente.fecha,
+        estado_eliminado: existente.estado,
+        hora_entrada: existente.hora_entrada,
+        hora_salida: existente.hora_salida,
+        motivo,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      mensaje: `Registro de asistencia #${id} eliminado y auditado correctamente.`,
+      id_eliminado: id,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: err.message });
+  }
+}
+
 module.exports = {
   escanearQR,
   justificarOModificarAsistencia,
+  actualizarAsistencia,
+  eliminarAsistencia,
   listarAsistencias,
   listarAuditoria,
   dispararCierreManual,
